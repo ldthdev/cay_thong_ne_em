@@ -1,0 +1,859 @@
+<!-- xin chào người lạ, mình là anhduc.onlien | mình có tìm được file code noel này và fix lại, mình xin phép share mọi người ạ! -->
+<!DOCTYPE html>
+<html lang="VN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOEL_V2</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000000; font-family: 'Times New Roman', serif; }
+        #canvas-container { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        /* UI Overlay - Minimalist */
+        #ui-layer {
+            position: absolute;
+            bottom: 0;          /* ⭐ bám đáy */
+            left: 0;
+            width: 100%;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-bottom: 28px; /* khoảng cách với đáy */
+            pointer-events: none;
+        }
+
+        
+        /* When hidden class is applied to specific elements */
+        .ui-hidden {
+            opacity: 0;
+            pointer-events: none !important;
+        }
+
+        /* Loading */
+        #loader {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: opacity 0.8s ease-out;
+        }
+        .loader-text {
+            color: #d4af37; font-size: 14px; letter-spacing: 4px; margin-top: 20px;
+            text-transform: uppercase; font-weight: 100;
+        }
+        .spinner {
+            width: 40px; height: 40px; border: 1px solid rgba(212, 175, 55, 0.2); 
+            border-top: 1px solid #d4af37; border-radius: 50%; 
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Typography - Centerpiece */
+        h1 { 
+            color: #fceea7; font-size: 56px; margin: 0; font-weight: 400; 
+            letter-spacing: 6px; 
+            text-shadow: 0 0 50px rgba(252, 238, 167, 0.6); 
+            background: linear-gradient(to bottom, #fff, #eebb66);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            font-family: 'Cinzel', 'Times New Roman', serif;
+            opacity: 0.9;
+            transition: opacity 0.5s ease; /* Ensure smooth transitions if needed */
+        }
+
+        /* Upload Button - Restored & Elegant */
+        .upload-wrapper {
+            margin-top: 20px;
+            pointer-events: auto;
+            text-align: center;
+            transition: opacity 0.5s ease; /* Add transition for smooth hiding */
+        }
+        .upload-btn {
+            background: rgba(20, 20, 20, 0.6); 
+            border: 1px solid rgba(212, 175, 55, 0.4); 
+            color: #d4af37; 
+            padding: 10px 25px; 
+            cursor: pointer; 
+            text-transform: uppercase; 
+            letter-spacing: 3px; 
+            font-size: 10px;
+            transition: all 0.4s;
+            display: inline-block;
+            backdrop-filter: blur(5px);
+        }
+        .upload-btn:hover { 
+            background: #d4af37; 
+            color: #000; 
+            box-shadow: 0 0 20px rgba(212, 175, 55, 0.5);
+        }
+        .hint-text {
+            color: rgba(212, 175, 55, 0.5);
+            font-size: 9px;
+            margin-top: 8px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        #file-input { display: none; }
+
+        /* Webcam feedback */
+        #webcam-wrapper {
+            position: absolute; bottom: 40px; right: 40px;
+            width: 120px; height: 90px;
+            border: 1px solid rgba(255,255,255,0.1);
+            overflow: hidden; opacity: 0; /* Hidden by default but functional */
+            pointer-events: none;
+        }
+    </style>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap');
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+                "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        <div class="loader-text">Loading Holiday Magic</div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <h1></h1>
+        
+        <div class="upload-wrapper">
+            <label class="upload-btn">
+                Thêm ảnh
+                <input type="file" id="file-input" multiple accept="image/*">
+            </label>
+            <div class="hint-text">Nhấn phím 'H' để ẩn các nút điều khiển, nhấn phím bất kì để mở nhạc</div>
+            <div class="hint-text">Xoè tay để mở, dùng 2 ngón tay kéo để kéo ảnh, nắm tay để đóng</div>
+        </div>
+    </div>
+
+    <!-- Webcam hidden structure -->
+    <div id="webcam-wrapper">
+        <video id="webcam" autoplay playsinline style="display:none;"></video>
+        <canvas id="webcam-preview"></canvas>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'; 
+        import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+
+        // --- CONFIGURATION ---
+        const CONFIG = {
+            colors: {
+                bg: 0x000000, 
+                champagneGold: 0xffd966, 
+                deepGreen: 0x03180a,     
+                accentRed: 0x990000,     
+            },
+            particles: {
+                count: 1500,     
+                dustCount: 2500, 
+                treeHeight: 24,  
+                treeRadius: 8    
+            },
+            camera: {
+                z: 50 
+            }
+        };
+
+        const STATE = {
+            mode: 'TREE', 
+            focusIndex: -1, 
+            focusTarget: null,
+            hand: { detected: false, x: 0, y: 0 },
+            rotation: { x: 0, y: 0 } 
+        };
+
+        let scene, camera, renderer, composer;
+        let merryMesh, merryMat;
+
+        let mainGroup; 
+        let clock = new THREE.Clock();
+        let particleSystem = []; 
+        let photoMeshGroup = new THREE.Group();
+        let handLandmarker, video, webcamCanvas, webcamCtx;
+        let caneTexture; 
+        let star, starGlow; 
+        // ===== BACKGROUND MUSIC =====
+        const MUSIC_URL = "./audio.mp3";   // nếu nhạc cùng thư mục index.html
+        let bgMusic;
+
+        function setupMusic() {
+        bgMusic = new Audio(MUSIC_URL);
+        bgMusic.loop = true;
+        bgMusic.volume = 0.8;   // 0.0 - 1.0
+        bgMusic.preload = "auto";
+        }
+
+        async function tryPlayMusic() {
+        if (!bgMusic) return;
+        try {
+            await bgMusic.play();
+        } catch (e) {
+            // Autoplay sẽ bị chặn nếu chưa có tương tác người dùng
+            console.log("Autoplay blocked:", e);
+        }
+        }
+
+
+
+        async function init() {
+            initThree();
+            setupEnvironment(); 
+            setupLights();
+            createTextures();
+            setupMusic();
+            createParticles(); 
+            createMerryText3D();
+            createDust();     
+            setupPostProcessing();
+            setupEvents();
+            await initMediaPipe();
+            
+            const loader = document.getElementById('loader');
+            loader.style.opacity = 0;
+            setTimeout(() => loader.remove(), 800);
+
+            animate();
+        }
+
+        function initThree() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(CONFIG.colors.bg);
+            scene.fog = new THREE.FogExp2(CONFIG.colors.bg, 0.01); 
+
+            camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 2, CONFIG.camera.z); 
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ReinhardToneMapping; 
+            renderer.toneMappingExposure = 2.2; 
+            container.appendChild(renderer.domElement);
+
+            mainGroup = new THREE.Group();
+            scene.add(mainGroup);
+        }
+
+        function setupEnvironment() {
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+        }
+
+        function setupLights() {
+            const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambient);
+
+            const innerLight = new THREE.PointLight(0xffaa00, 2, 20);
+            innerLight.position.set(0, 5, 0);
+            mainGroup.add(innerLight);
+
+            const spotGold = new THREE.SpotLight(0xffcc66, 1200);
+            spotGold.position.set(30, 40, 40);
+            spotGold.angle = 0.5;
+            spotGold.penumbra = 0.5;
+            scene.add(spotGold);
+
+            const spotBlue = new THREE.SpotLight(0x6688ff, 600);
+            spotBlue.position.set(-30, 20, -30);
+            scene.add(spotBlue);
+            
+            const fill = new THREE.DirectionalLight(0xffeebb, 0.8);
+            fill.position.set(0, 0, 50);
+            scene.add(fill);
+        }
+
+        function setupPostProcessing() {
+            const renderScene = new RenderPass(scene, camera);
+            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+            bloomPass.threshold = 0.7; 
+            bloomPass.strength = 0.45; 
+            bloomPass.radius = 0.4;
+
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
+        }
+
+        function createTextures() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0,0,128,128);
+            ctx.fillStyle = '#880000'; 
+            ctx.beginPath();
+            for(let i=-128; i<256; i+=32) {
+                ctx.moveTo(i, 0); ctx.lineTo(i+32, 128); ctx.lineTo(i+16, 128); ctx.lineTo(i-16, 0);
+            }
+            ctx.fill();
+            caneTexture = new THREE.CanvasTexture(canvas);
+            caneTexture.wrapS = THREE.RepeatWrapping;
+            caneTexture.wrapT = THREE.RepeatWrapping;
+            caneTexture.repeat.set(3, 3);
+        }
+
+        class Particle {
+            constructor(mesh, type, isDust = false, index = 0, total = 1) {
+                this.mesh = mesh;
+                this.type = type;
+                this.isDust = isDust;
+                this.index = index;
+                this.total = total;
+
+                this.posTree = new THREE.Vector3();
+                this.posScatter = new THREE.Vector3();
+                this.baseScale = mesh.scale.x;
+
+                const speedMult = (type === 'PHOTO') ? 0.3 : 2.0;
+                this.spinSpeed = new THREE.Vector3(
+                (Math.random() - 0.5) * speedMult,
+                (Math.random() - 0.5) * speedMult,
+                (Math.random() - 0.5) * speedMult
+                );
+
+                this.calculatePositions();
+            }
+
+            calculatePositions() {
+                // ...
+            }
+            
+
+
+            calculatePositions() {
+             
+                // TREE: Spiral but height-uniform
+                const h = CONFIG.particles.treeHeight;
+                const halfH = h / 2;
+
+                // y đều theo chiều cao
+                const y = (Math.random() * h) - halfH;
+
+                // t theo y (0 đáy -> 1 đỉnh)
+                const t = (y + halfH) / h;
+
+                // bán kính theo cone
+                const rMax = CONFIG.particles.treeRadius * (1.0 - t);
+
+                // r đều theo diện tích mặt cắt (không dồn vào tâm)
+                const r = Math.sqrt(Math.random()) * Math.max(rMax, 0.05);
+
+                // giữ xoắn (spiral)
+                const angle = t * 50 * Math.PI + Math.random() * Math.PI * 2;
+
+                this.posTree.set(Math.cos(angle) * r, y, Math.sin(angle) * r);
+
+
+                // SCATTER: 3D Sphere
+                let rScatter = this.isDust ? (12 + Math.random()*20) : (8 + Math.random()*12);
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                this.posScatter.set(
+                    rScatter * Math.sin(phi) * Math.cos(theta),
+                    rScatter * Math.sin(phi) * Math.sin(theta),
+                    rScatter * Math.cos(phi)
+                );
+            }
+
+            update(dt, mode, focusTargetMesh) {
+                let target = this.posTree;
+                
+                if (mode === 'SCATTER') target = this.posScatter;
+                else if (mode === 'FOCUS') {
+                    if (this.mesh === focusTargetMesh) {
+                        const desiredWorldPos = new THREE.Vector3(0, 2, 35);
+                        const invMatrix = new THREE.Matrix4().copy(mainGroup.matrixWorld).invert();
+                        target = desiredWorldPos.applyMatrix4(invMatrix);
+                    } else {
+                        target = this.posScatter;
+                    }
+                }
+
+                // Movement Easing
+                const lerpSpeed = (mode === 'FOCUS' && this.mesh === focusTargetMesh) ? 5.0 : 2.0; 
+                this.mesh.position.lerp(target, lerpSpeed * dt);
+
+                // Rotation Logic - CRITICAL: Ensure spin happens in Scatter
+                if (mode === 'SCATTER') {
+                    this.mesh.rotation.x += this.spinSpeed.x * dt;
+                    this.mesh.rotation.y += this.spinSpeed.y * dt;
+                    this.mesh.rotation.z += this.spinSpeed.z * dt; // Added Z for more natural tumble
+                } else if (mode === 'TREE') {
+                    // Reset rotations slowly
+                    this.mesh.rotation.x = THREE.MathUtils.lerp(this.mesh.rotation.x, 0, dt);
+                    this.mesh.rotation.z = THREE.MathUtils.lerp(this.mesh.rotation.z, 0, dt);
+                    this.mesh.rotation.y += 0.5 * dt; 
+                }
+                
+                if (mode === 'FOCUS' && this.mesh === focusTargetMesh) {
+                    this.mesh.lookAt(camera.position); 
+                }
+
+                // Scale Logic
+                let s = this.baseScale;
+                if (this.isDust) {
+                    s = this.baseScale * (0.8 + 0.4 * Math.sin(clock.elapsedTime * 4 + this.mesh.id));
+                    if (mode === 'TREE') s = 0; 
+                } else if (mode === 'SCATTER' && this.type === 'PHOTO') {
+                    // Large preview size in scatter
+                    s = this.baseScale * 2.5; 
+                } else if (mode === 'FOCUS') {
+                    if (this.mesh === focusTargetMesh) s = 4.5; 
+                    else s = this.baseScale * 0.8; 
+                }
+                
+                this.mesh.scale.lerp(new THREE.Vector3(s,s,s), 4*dt);
+            }
+        }
+
+        function createMerryText3D() {
+  const c = document.createElement("canvas");
+
+  // tăng độ phân giải để chữ nét
+  const W = 2048, H = 512;
+  c.width = W; c.height = H;
+
+  const ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, W, H); // nền trong suốt 100%
+
+  // ===== chữ =====
+  const text = "Giáng sinh an lành nhé!";
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = '700 170px "Cinzel", "Times New Roman", serif';
+
+  // stroke mỏng (sang) + KHÔNG nền
+  ctx.lineJoin = "round";
+  ctx.miterLimit = 2;
+
+  // stroke nhẹ
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(255, 235, 190, 0.35)";
+  ctx.lineWidth = 10;
+  ctx.strokeText(text, W / 2, H / 2);
+
+  // fill gradient
+  const textGrad = ctx.createLinearGradient(0, H/2 - 120, 0, H/2 + 120);
+  textGrad.addColorStop(0, "#FFFFFF");
+  textGrad.addColorStop(0.35, "#FFE7B3");
+  textGrad.addColorStop(1, "#E6B45B");
+  ctx.fillStyle = textGrad;
+
+  // glow chỉ bám theo chữ (không phải nền)
+  ctx.shadowColor = "rgba(255, 200, 120, 0.55)";
+  ctx.shadowBlur = 24;
+  ctx.fillText(text, W / 2, H / 2);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  tex.needsUpdate = true;
+
+  merryMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    opacity: 1.0,
+    depthWrite: false,
+    depthTest: true
+  });
+
+  // canvas tỉ lệ 4:1 => geometry 16x4 là hợp lý
+  const geo = new THREE.PlaneGeometry(16, 4);
+  merryMesh = new THREE.Mesh(geo, merryMat);
+
+  // ✅ CHỈ SET 1 LẦN (chỉnh y cho cao hơn ngọn cây)
+  const yTop = CONFIG.particles.treeHeight / 2 + 4.2;
+  merryMesh.position.set(0, yTop, 2.2);
+
+  merryMesh.rotation.set(0, 0, 0);
+  merryMesh.renderOrder = 10;
+
+  scene.add(merryMesh);
+}
+
+
+
+        // --- CREATION ---
+        function createParticles() {
+            const sphereGeo = new THREE.SphereGeometry(0.5, 32, 32); 
+            const boxGeo = new THREE.BoxGeometry(0.55, 0.55, 0.55); 
+            const curve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0, -0.5, 0), new THREE.Vector3(0, 0.3, 0),
+                new THREE.Vector3(0.1, 0.5, 0), new THREE.Vector3(0.3, 0.4, 0)
+            ]);
+            const candyGeo = new THREE.TubeGeometry(curve, 16, 0.08, 8, false);
+
+            const goldMat = new THREE.MeshStandardMaterial({
+                color: CONFIG.colors.champagneGold,
+                metalness: 1.0, roughness: 0.1,
+                envMapIntensity: 2.0, 
+                emissive: 0x443300,   
+                emissiveIntensity: 0.3
+            });
+
+            const greenMat = new THREE.MeshStandardMaterial({
+                color: 0x154b2a,         // XANH TƯƠI (đổi số này nếu muốn)
+                metalness: 0.05,
+                roughness: 0.55,
+
+                emissive: 0x0e3d23,       // phát sáng xanh nhẹ
+                emissiveIntensity: 0.1,  // tăng/giảm độ rực tại đây
+
+                envMapIntensity: 1.2
+            });
+
+
+            const redMat = new THREE.MeshPhysicalMaterial({
+                color: CONFIG.colors.accentRed,
+                metalness: 0.3, roughness: 0.2, clearcoat: 1.0,
+                emissive: 0x330000
+            });
+            
+            const candyMat = new THREE.MeshStandardMaterial({ map: caneTexture, roughness: 0.4 });
+
+            for (let i = 0; i < CONFIG.particles.count; i++) {
+                const rand = Math.random();
+                let mesh, type;
+                
+                if (rand < 0.40) {
+                    mesh = new THREE.Mesh(boxGeo, greenMat);
+                    type = 'BOX';
+                } else if (rand < 0.70) {
+                    mesh = new THREE.Mesh(boxGeo, goldMat);
+                    type = 'GOLD_BOX';
+                } else if (rand < 0.92) {
+                    mesh = new THREE.Mesh(sphereGeo, goldMat);
+                    type = 'GOLD_SPHERE';
+                } else if (rand < 0.97) {
+                    mesh = new THREE.Mesh(sphereGeo, redMat);
+                    type = 'RED';
+                } else {
+                    mesh = new THREE.Mesh(candyGeo, candyMat);
+                    type = 'CANE';
+                    
+                }
+
+                let s = 0.4 + Math.random() * 0.5;
+
+                if (type === 'CANE') {
+                    // Kẹo cây to hơn rõ rệt
+                    s *= 2.0;                 // 🔥 tăng kích thước tại đây
+                    mesh.scale.set(s, s * 1.6, s); // cao hơn, đúng dáng kẹo
+                } else {
+                    mesh.scale.set(s, s, s);
+                }
+
+                mesh.rotation.set(Math.random()*6, Math.random()*6, Math.random()*6);
+
+                
+                mainGroup.add(mesh);
+                particleSystem.push(new Particle(mesh, type, false, i, CONFIG.particles.count));
+            }
+
+            // ===== STAR TOP 3D (5-point star extrude) =====
+            const starY = CONFIG.particles.treeHeight / 2 + 1.6;
+
+            // tạo shape ngôi sao 5 cánh
+            function createStarShape(outerR = 1.35, innerR = 0.6, points = 5) {
+                const shape = new THREE.Shape();
+                const step = Math.PI / points;
+                let rot = -Math.PI / 2;
+
+                shape.moveTo(Math.cos(rot) * outerR, Math.sin(rot) * outerR);
+
+                for (let i = 0; i < points; i++) {
+                    shape.lineTo(Math.cos(rot) * outerR, Math.sin(rot) * outerR);
+                    rot += step;
+                    shape.lineTo(Math.cos(rot) * innerR, Math.sin(rot) * innerR);
+                    rot += step;
+                }
+
+                shape.closePath();
+                return shape;
+            }
+
+            const starShape = createStarShape(1.35, 0.6, 5);
+
+            // cấu hình độ dày (3D)
+            const extrudeSettings = {
+                depth: 0.55,          // ĐỘ DÀY: tăng/giảm tại đây
+                bevelEnabled: true,
+                bevelThickness: 0.12,
+                bevelSize: 0.10,
+                bevelSegments: 3,
+                curveSegments: 24
+            };
+
+            const starGeo = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
+            starGeo.center(); // căn giữa mesh
+
+            // vật liệu ngôi sao (shiny + glow)
+            const starMat = new THREE.MeshPhysicalMaterial({
+                color: 0xffdd88,
+                emissive: 0xffaa00,
+                emissiveIntensity: 2.2,
+                metalness: 1.0,
+                roughness: 0.12,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.08
+            });
+
+            // gán vào biến global star (KHÔNG dùng const star)
+            star = new THREE.Mesh(starGeo, starMat);
+            star.position.set(0, starY, 0);
+            mainGroup.add(star);
+
+            // glow layer (bản sao lớn hơn, trong suốt)
+            const glowMat = new THREE.MeshBasicMaterial({
+                color: 0xffb84d,
+                transparent: true,
+                opacity: 0.22,
+                depthWrite: false
+            });
+
+            starGlow = new THREE.Mesh(starGeo.clone(), glowMat);
+            starGlow.position.copy(star.position);
+            starGlow.scale.setScalar(1.22);
+            mainGroup.add(starGlow);
+
+            
+            mainGroup.add(photoMeshGroup);
+        }
+
+        function createDust() {
+            const geo = new THREE.TetrahedronGeometry(0.08, 0);
+            const mat = new THREE.MeshBasicMaterial({ color: 0xffeebb, transparent: true, opacity: 0.8 });
+            
+            for(let i=0; i<CONFIG.particles.dustCount; i++) {
+                 const mesh = new THREE.Mesh(geo, mat);
+                 mesh.scale.setScalar(0.5 + Math.random());
+                 mainGroup.add(mesh);
+                 particleSystem.push(new Particle(mesh, 'DUST', true));
+            }
+        }
+        function addPhotoToScene(texture) {
+     
+            const img = texture.image;
+            if (!img || !img.width || !img.height) return;
+
+            const aspect = img.width / img.height;
+
+            // ====== KÍCH THƯỚC ẢNH (giữ chiều cao cố định) ======
+            const photoH = 1.2;              // bạn đổi số này để ảnh to/nhỏ
+            const photoW = photoH * aspect;  // ✅ auto theo đúng tỉ lệ
+
+            // ====== ẢNH ======
+            const photoGeo = new THREE.PlaneGeometry(photoW, photoH);
+            const photoMat = new THREE.MeshBasicMaterial({
+                map: texture,
+                transparent: true,
+                depthWrite: false
+            });
+            const photo = new THREE.Mesh(photoGeo, photoMat);
+            photo.position.z = 0.04;
+
+            // ====== KHUNG (ôm theo ảnh) ======
+            const pad = 0.14; // độ dày viền khung
+            const frameGeo = new THREE.BoxGeometry(photoW + pad, photoH + pad, 0.05);
+            const frameMat = new THREE.MeshStandardMaterial({
+                color: CONFIG.colors.champagneGold,
+                metalness: 1.0,
+                roughness: 0.1
+            });
+            const frame = new THREE.Mesh(frameGeo, frameMat);
+
+            // ====== GROUP ======
+            const group = new THREE.Group();
+            group.add(frame);
+            group.add(photo);
+
+            // scale tổng thể (giữ như bạn muốn)
+            const s = 0.8;
+            group.scale.set(s, s, s);
+
+            photoMeshGroup.add(group);
+            particleSystem.push(new Particle(group, 'PHOTO', false));
+            }
+
+        
+        function handleImageUpload(e) {
+            const files = e.target.files;
+            if(!files.length) return;
+            Array.from(files).forEach(f => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    new THREE.TextureLoader().load(ev.target.result, (t) => {
+                        t.colorSpace = THREE.SRGBColorSpace;
+                        addPhotoToScene(t);
+                    });
+                }
+                reader.readAsDataURL(f);
+            });
+        }
+
+        // --- MEDIAPIPE ---
+        async function initMediaPipe() {
+            video = document.getElementById('webcam');
+            webcamCanvas = document.getElementById('webcam-preview');
+            webcamCtx = webcamCanvas.getContext('2d');
+            webcamCanvas.width = 160; webcamCanvas.height = 120;
+
+            const vision = await FilesetResolver.forVisionTasks(
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+            );
+            handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+                    delegate: "GPU"
+                },
+                runningMode: "VIDEO",
+                numHands: 1
+            });
+            
+            if (navigator.mediaDevices?.getUserMedia) {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                video.addEventListener("loadeddata", predictWebcam);
+            }
+        }
+
+        let lastVideoTime = -1;
+        async function predictWebcam() {
+            if (video.currentTime !== lastVideoTime) {
+                lastVideoTime = video.currentTime;
+                if (handLandmarker) {
+                    const result = handLandmarker.detectForVideo(video, performance.now());
+                    processGestures(result);
+                }
+            }
+            requestAnimationFrame(predictWebcam);
+        }
+
+        function processGestures(result) {
+            if (result.landmarks && result.landmarks.length > 0) {
+                STATE.hand.detected = true;
+                const lm = result.landmarks[0];
+                STATE.hand.x = (lm[9].x - 0.5) * 2; 
+                STATE.hand.y = (lm[9].y - 0.5) * 2;
+
+                const thumb = lm[4]; const index = lm[8]; const wrist = lm[0];
+                const pinchDist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+                const tips = [lm[8], lm[12], lm[16], lm[20]];
+                let avgDist = 0;
+                tips.forEach(t => avgDist += Math.hypot(t.x - wrist.x, t.y - wrist.y));
+                avgDist /= 4;
+
+                if (pinchDist < 0.05) {
+                    if (STATE.mode !== 'FOCUS') {
+                        STATE.mode = 'FOCUS';
+                        const photos = particleSystem.filter(p => p.type === 'PHOTO');
+                        if (photos.length) STATE.focusTarget = photos[Math.floor(Math.random()*photos.length)].mesh;
+                    }
+                } else if (avgDist < 0.25) {
+                    STATE.mode = 'TREE';
+                    STATE.focusTarget = null;
+                } else if (avgDist > 0.4) {
+                    STATE.mode = 'SCATTER';
+                    STATE.focusTarget = null;
+                }
+            } else {
+                STATE.hand.detected = false;
+            }
+        }
+
+        function setupEvents() {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                composer.setSize(window.innerWidth, window.innerHeight);
+            });
+            document.getElementById('file-input').addEventListener('change', handleImageUpload);
+            
+            // Toggle UI logic - ONLY hide controls, keep title
+            window.addEventListener('keydown', (e) => {
+                if (e.key.toLowerCase() === 'h') {
+                    const controls = document.querySelector('.upload-wrapper');
+                    if (controls) controls.classList.toggle('ui-hidden');
+                }
+            });
+            // ===== UNLOCK AUDIO (click 1 lần để bật nhạc) =====
+            const unlockMusic = async () => {
+            await tryPlayMusic();
+            window.removeEventListener('pointerdown', unlockMusic);
+            window.removeEventListener('keydown', unlockMusic);
+            window.removeEventListener('touchstart', unlockMusic);
+            };
+
+            window.addEventListener('pointerdown', unlockMusic, { once: true });
+            window.addEventListener('keydown', unlockMusic, { once: true });
+            window.addEventListener('touchstart', unlockMusic, { once: true });
+
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+
+            // Rotation Logic
+            if (STATE.mode === 'SCATTER' && STATE.hand.detected) {
+                const targetRotY = STATE.hand.x * Math.PI * 0.9; 
+                const targetRotX = STATE.hand.y * Math.PI * 0.25;
+                STATE.rotation.y += (targetRotY - STATE.rotation.y) * 3.0 * dt;
+                STATE.rotation.x += (targetRotX - STATE.rotation.x) * 3.0 * dt;
+            } else {
+                if(STATE.mode === 'TREE') {
+                    STATE.rotation.y += 0.3 * dt;
+                    STATE.rotation.x += (0 - STATE.rotation.x) * 2.0 * dt;
+                } else {
+                     STATE.rotation.y += 0.1 * dt; 
+                }
+            }
+
+            mainGroup.rotation.y = STATE.rotation.y;
+            mainGroup.rotation.x = STATE.rotation.x;
+
+            particleSystem.forEach(p => p.update(dt, STATE.mode, STATE.focusTarget));
+            if (star && starGlow) {
+            // xoay
+            star.rotation.y += 0.9 * dt;
+            star.rotation.z += 0.35 * dt;
+            starGlow.rotation.copy(star.rotation);
+            }
+            // ===== MERRY CHRISTMAS: ẩn khi mở tay (SCATTER) =====
+            if (merryMat) {
+            const target = (STATE.mode === "SCATTER") ? 0.0 : 1.0; // mở tay -> SCATTER -> mất
+            merryMat.opacity += (target - merryMat.opacity) * 0.08; // fade mượt
+            if (merryMesh) merryMesh.visible = merryMat.opacity > 0.01;
+            }
+
+            composer.render();
+        }
+
+        init();
+    </script>
+</body>
+</html>
